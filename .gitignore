@@ -1,4 +1,8 @@
 *.csv
 *.html
 *.json
+# ...except the cartridge catalog, which is a tracked template users edit
+!cartridges.json
+# toner history is local-only (per-machine audit data)
+data/
 __pycache__/

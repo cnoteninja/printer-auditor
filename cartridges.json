@@ -1,0 +1,15 @@
+{
+  "Brother HL-L2390DW": {
+    "black": "TN-760"
+  },
+  "HP Color LaserJet Pro MFP M479fdw": {
+    "black": "CF410A",
+    "cyan": "CF411A",
+    "magenta": "CF413A",
+    "yellow": "CF412A"
+  },
+  "HP LaserJet M404dn": {
+    "black": "CF258A"
+  },
+  "_note": "Model names must match the 'model' strings printers report via SNMP (see printers.csv / the HTML report). Colors are lowercase: black, cyan, magenta, yellow. Add your own models freely."
+}

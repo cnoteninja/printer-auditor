@@ -15,6 +15,7 @@ Zero third-party dependencies. Windows / Linux / macOS.
 
 import argparse
 import csv
+import datetime
 import html
 import ipaddress
 import os
@@ -26,6 +27,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from snmp import get as snmp_get, SNMPError  # noqa: E402
 
 CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "printers.csv")
+
+# Per-run toner history (local only — data/ is git-ignored). Written on every
+# audit; read by predict_toner.py for days-until-empty estimates.
+HISTORY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+HISTORY_CSV = os.path.join(HISTORY_DIR, "toner_history.csv")
+
+COLOR_KEYWORDS = ("black", "cyan", "magenta", "yellow")
 
 OID = {
     "sys_descr": "1.3.6.1.2.1.1.1.0",
@@ -119,6 +127,34 @@ def save_csv(printers):
                 w.writerow([p["host"], p["model"], p["serial"], p["pages"], "", ""])
 
 
+def guess_color(desc):
+    """Map a supply description like 'Black Toner Cartridge' to a color key."""
+    d = desc.lower()
+    for c in COLOR_KEYWORDS:
+        if c in d:
+            return c
+    return "other"
+
+
+def append_history(printers):
+    """Append one row per cartridge per printer to data/toner_history.csv."""
+    os.makedirs(HISTORY_DIR, exist_ok=True)
+    new = not os.path.exists(HISTORY_CSV)
+    ts = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    with open(HISTORY_CSV, "a", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        if new:
+            w.writerow(["timestamp", "host", "model", "color", "desc", "level_pct"])
+        for p in printers:
+            if not p.get("snmp"):
+                continue
+            for s in p.get("supplies") or []:
+                if not isinstance(s["pct"], int):  # skip "unknown"/"ok"/None
+                    continue
+                w.writerow([ts, p["host"], p["model"], guess_color(s["desc"]),
+                            s["desc"], s["pct"]])
+
+
 def toner_bar(pct):
     if pct in ("unknown", "ok", None) or pct == "":
         return "<span class='b'>%s</span>" % html.escape(str(pct or "n/a"))
@@ -185,6 +221,8 @@ def main():
         print("polling %s..." % h)
         printers.append(poll_printer(h, args.community))
     save_csv(printers)
+    append_history(printers)
+    print("history appended -> data/toner_history.csv")
     outdir = os.path.dirname(os.path.abspath(__file__))
     out = os.path.join(outdir, os.path.basename(args.out))
     with open(out, "w", encoding="utf-8") as fh:

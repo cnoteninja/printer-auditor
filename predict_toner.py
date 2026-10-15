@@ -28,6 +28,10 @@ import csv
 import datetime
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from status import cartridge_status, ansi  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CSV = os.path.join(HERE, "data", "toner_history.csv")
@@ -138,10 +142,10 @@ def main():
     for (host, model, color, desc), pts in sorted(series.items()):
         current = pts[-1][1]
         pn = part_number(catalog, model, color)
-        if current <= args.low:
-            now_low.append((host, model, color, current, pn))
-            continue
         days = depletion_days(pts)
+        if current <= args.low:
+            now_low.append((host, model, color, current, days, pn))
+            continue
         if days is not None and days <= args.threshold:
             projected.append((host, model, color, current, days, pn))
     projected.sort(key=lambda r: r[4])
@@ -150,17 +154,19 @@ def main():
     print()
     if now_low:
         print("Reorder now (<= %g%% remaining):" % args.low)
-        for host, model, color, level, pn in now_low:
-            print("  %-15s  %-30s  %-8s %3d%%  part: %s"
-                  % (host, model[:30], color, level, pn))
+        for host, model, color, current, days, pn in now_low:
+            st = ansi(cartridge_status(current, days))
+            print("  %-15s  %-30s  %-8s %3d%%  part: %-20s %s"
+                  % (host, model[:30], color, current, pn, st))
     else:
         print("Nothing at/below %g%% — good." % args.low)
     print()
     if projected:
         print("Projected empty within %g days:" % args.threshold)
-        for host, model, color, level, days, pn in projected:
-            print("  %-15s  %-30s  %-8s %3d%%  ~%.1f days left  part: %s"
-                  % (host, model[:30], color, level, days, pn))
+        for host, model, color, current, days, pn in projected:
+            st = ansi(cartridge_status(current, days))
+            print("  %-15s  %-30s  %-8s %3d%%  ~%.1f days left  part: %-20s %s"
+                  % (host, model[:30], color, current, days, pn, st))
     else:
         print("Nothing projected to empty within %g days." % args.threshold)
 

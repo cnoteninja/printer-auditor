@@ -1,8 +1,13 @@
 *.csv
 *.html
 *.json
-# ...except the cartridge catalog, which is a tracked template users edit
+# ...except the cartridge catalog and bundled templates, which users edit
 !cartridges.json
+!config.example.json
+!demo/sample_printers.json
+!demo/sample_toner_history.csv
+# config.json holds real SMTP credentials — never commit it
+config.json
 # toner history is local-only (per-machine audit data)
 data/
 __pycache__/

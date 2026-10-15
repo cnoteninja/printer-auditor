@@ -20,9 +20,130 @@ python printer_audit.py --hosts 192.168.1.50 192.168.1.51 --community private
 
 # Predict days-until-empty from accumulated history, with part numbers
 python predict_toner.py
+
+# One HTML digest for the morning coffee (audit + predictions + growers)
+python morning_digest.py --hosts 192.168.1.50 192.168.1.51
+
+# See it work in ~30 seconds with no printers and no network
+python morning_digest.py --demo
+
+# Readiness check: Python, config, demo data, printer reachability
+python check_setup.py
 ```
 
-Open `printers.html`. Reorder anything at 10% or below.
+Open `printers.html` (or `digest.html` for the morning summary).
+
+## Morning digest (`morning_digest.py`)
+
+One file, one glance. Runs a fresh audit, pulls the toner predictions, and
+writes `digest.html` with four sections:
+
+1. **Printers needing attention** — everything not OK, offline printers first,
+   with per-cartridge status badges
+2. **Offline printers** — hosts that didn't answer SNMP
+3. **Toner reorder list** — cartridges at Critical / Order soon, with part
+   numbers from `cartridges.json`
+4. **Top page-count growers** — biggest page-count increases over the last
+   30 days (from `data/page_history.csv`, built up automatically by each audit)
+
+```bash
+python morning_digest.py --subnet 192.168.1.0/24
+python morning_digest.py --hosts 192.168.1.50 192.168.1.51 --community private
+python morning_digest.py --demo --out sample-digest.html
+```
+
+### Emailing the digest
+
+Pass `--mailto` and the digest is sent as an HTML email via `smtplib`:
+
+```bash
+python morning_digest.py --hosts 192.168.1.50 --mailto you@example.com
+python morning_digest.py --demo --mailto you@example.com   # tests your SMTP setup, no printers needed
+```
+
+Email settings come from the `smtp` section of `config.json` (see
+`config.example.json`; copy it to `config.json`). **Credentials are never
+hardcoded.** Username and password may use `${ENV_VAR}` expansion, and any
+missing value falls back to environment variables:
+
+| Setting | config.json | env fallback |
+|---|---|---|
+| SMTP host | `smtp.host` | `SMTP_HOST` |
+| SMTP port | `smtp.port` | `SMTP_PORT` (default 587) |
+| username | `smtp.username` | `SMTP_USERNAME` |
+| password | `smtp.password` | `SMTP_PASSWORD` |
+| From address | `smtp.from` | `SMTP_FROM` |
+| default recipients | `smtp.to` (list) | — |
+
+```json
+{
+  "smtp": {
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "use_tls": true,
+    "username": "${SMTP_USERNAME}",
+    "password": "${SMTP_PASSWORD}",
+    "from": "${SMTP_FROM}",
+    "to": ["you@example.com"]
+  }
+}
+```
+
+With no `--mailto` addresses, the digest goes to `smtp.to`. `config.json`
+is git-ignored, so credentials never end up in the repo.
+
+## Status labels (`status.py`)
+
+Every printer and cartridge maps to one plain-English label — `OK`,
+`Order soon`, or `Critical`. The mapping lives in **one module**
+(`status.py`) so the audit report, the prediction script, and the digest
+all use the same thresholds:
+
+| Label | Meaning | Thresholds |
+|---|---|---|
+| **Critical** | reorder / fix now | level ≤ **10%** · empty within **3 days** · printer offline |
+| **Order soon** | stock the replacement | level ≤ **25%** · empty within **14 days** |
+| **OK** | nothing to do | everything else |
+
+Labels are color-coded in terminal output (green / yellow / red) and appear
+as badges in every HTML report. A cartridge is "unknown"/"ok"/missing only
+when the printer gave no usable reading — that maps to OK, never an alarm.
+
+## Demo mode
+
+No printers? No network? See the full output in ~30 seconds:
+
+```bash
+python morning_digest.py --demo
+```
+
+`--demo` reads the bundled sample data (`demo/sample_printers.json` +
+`demo/sample_toner_history.csv` — kept in `demo/`, separate from the
+git-ignored `data/` dir that holds your real fleet's history) and produces
+a complete sample `digest.html`: a critical toner, an order-soon cartridge
+flagged by its 12-day depletion projection, and an offline printer.
+
+## Setup checker (`check_setup.py`)
+
+Plain-English PASS / FAIL / SKIP lines, never a traceback:
+
+```bash
+python check_setup.py
+```
+
+```
+PASS  Python 3.12.3 (>= 3.8)
+SKIP  no config.json — email disabled (copy config.example.json to config.json to enable it)
+PASS  demo bundle OK — 4 sample printers, 28 history rows (try: python morning_digest.py --demo)
+SKIP  no hosts in config.json — run python printer_audit.py --subnet 192.168.1.0/24 to discover
+```
+
+It checks the Python version, validates `config.json` if one exists (valid
+JSON, `smtp.host` present when an `smtp` section is configured), verifies
+the demo bundle parses, and tries a short-timeout TCP connection to port
+9100 on each host listed under `"hosts"` in `config.json` — unreachable
+printers are reported as FAIL lines, not crashes. Exits 0 when nothing
+failed, 1 otherwise.
 
 ## Toner history + depletion prediction
 
@@ -98,10 +219,13 @@ you exactly what to buy:
 2. **SNMP poll** — pulls model, serial, page count (`prtMarkerLifeCount`),
    and every supply's description/level/capacity from the Printer MIB
 3. **History** — appends per-cartridge levels to `data/toner_history.csv`
-   (local-only, git-ignored)
-4. **Report** — HTML fleet cards with toner bars; supplies ≤10% counted up top
+   and page counts to `data/page_history.csv` (both local-only, git-ignored)
+4. **Report** — HTML fleet cards with toner bars and status badges;
+   supplies ≤10% counted up top
 5. **Prediction** — `predict_toner.py` fits a depletion rate per cartridge
    from history and prints a reorder list with part numbers
+6. **Digest** — `morning_digest.py` rolls the audit, predictions, and
+   page-count growers into one `digest.html`, optionally emailed
 
 ## Files
 
@@ -109,10 +233,16 @@ you exactly what to buy:
 |---|---|
 | `printer_audit.py` | Discovery + polling + HTML report + history logging |
 | `predict_toner.py` | Days-until-empty prediction + reorder list |
+| `morning_digest.py` | Morning coffee digest: audit + predictions + growers → `digest.html`, optional `--mailto` |
+| `check_setup.py` | Readiness check: Python, config, demo data, printer reachability |
+| `status.py` | One place for OK / Order soon / Critical labels + thresholds |
 | `cartridges.json` | Model → {color: part number} catalog (edit me) |
+| `config.example.json` | Template for `config.json` (SMTP + hosts; real file is git-ignored) |
 | `snmp.py` | Minimal SNMPv2c GET client (stdlib only) |
+| `demo/` | Bundled sample data for `--demo` (tracked; separate from git-ignored `data/`) |
 | `data/toner_history.csv` | Per-run cartridge levels (local-only, git-ignored) |
-| `printers.csv` / `printers.html` | Generated output (git-ignored) |
+| `data/page_history.csv` | Per-run page counts (local-only, git-ignored) |
+| `printers.csv` / `printers.html` / `digest.html` | Generated output (git-ignored) |
 
 ## Requirements
 

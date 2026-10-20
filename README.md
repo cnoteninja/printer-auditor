@@ -9,6 +9,10 @@ monthly and reorder before it matters.
 **Zero third-party dependencies** — includes a minimal stdlib-only SNMPv2c
 client (`snmp.py`), so it runs anywhere Python runs.
 
+![Printer Auditor morning digest (demo data)](demo.png)
+
+*The morning digest on demo data. Live demos: https://cnoteninja.github.io/Portfolio/*
+
 ## Quick start
 
 ```bash
